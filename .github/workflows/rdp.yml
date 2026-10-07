@@ -1,0 +1,50 @@
+name: Free-RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Set password for RDP user
+        shell: cmd
+        run: net user runneradmin "${{ secrets.RDP_PASSWORD }}"
+
+      - name: Enable Remote Desktop
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: Install Tailscale
+        shell: powershell
+        run: |
+          $installer = "$env:TEMP\tailscale-setup.exe"
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile $installer
+          Start-Process $installer -ArgumentList "/quiet" -Wait
+
+      - name: Connect to Tailscale network
+        shell: powershell
+        run: |
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ secrets.TAILSCALE_AUTHKEY }}" --hostname=gh-rdp
+
+      - name: Show RDP address (read this in the run log)
+        shell: powershell
+        run: |
+          Write-Host "================ RDP INFO ================"
+          & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          Write-Host "Username: runneradmin"
+          Write-Host "Password: the RDP_PASSWORD secret you set"
+          Write-Host "==========================================="
+
+      - name: Keep the machine alive (up to ~6 hours)
+        shell: powershell
+        run: |
+          $end = (Get-Date).AddMinutes(340)
+          while ((Get-Date) -lt $end) {
+            Write-Host "alive: $(Get-Date -Format 'HH:mm')"
+            Start-Sleep -Seconds 300
+          }
